@@ -3,18 +3,19 @@ package generator
 import (
 	"github.com/docker/docker/api/types"
 	"github.com/lucaslorentz/caddy-docker-proxy/v2/caddyfile"
+	"github.com/lucaslorentz/caddy-docker-proxy/v2/docker"
 	"go.uber.org/zap"
 )
 
-func (g *CaddyfileGenerator) getContainerCaddyfile(container *types.Container, logger *zap.Logger) (*caddyfile.Container, error) {
+func (g *CaddyfileGenerator) getContainerCaddyfile(dockerClient *docker.Client, container *types.Container, logger *zap.Logger) (*caddyfile.Container, error) {
 	caddyLabels := g.filterLabels(container.Labels)
 
 	return labelsToCaddyfile(caddyLabels, container, func() ([]string, error) {
-		return g.getContainerIPAddresses(container, logger, true)
+		return g.getContainerIPAddresses(dockerClient, container, logger, true)
 	})
 }
 
-func (g *CaddyfileGenerator) getContainerIPAddresses(container *types.Container, logger *zap.Logger, onlyIngressIps bool) ([]string, error) {
+func (g *CaddyfileGenerator) getContainerIPAddresses(dockerClient *docker.Client, container *types.Container, logger *zap.Logger, onlyIngressIps bool) ([]string, error) {
 	ips := []string{}
 
 	ingressNetworkFromLabel, overrideNetwork := container.Labels[IngressNetworkLabel]
@@ -22,7 +23,7 @@ func (g *CaddyfileGenerator) getContainerIPAddresses(container *types.Container,
 	for networkName, network := range container.NetworkSettings.Networks {
 		include := false
 
-		if !onlyIngressIps  {
+		if !onlyIngressIps {
 			include = true
 		} else if overrideNetwork {
 			include = networkName == ingressNetworkFromLabel
@@ -32,6 +33,8 @@ func (g *CaddyfileGenerator) getContainerIPAddresses(container *types.Container,
 
 		if include {
 			ips = append(ips, network.IPAddress)
+		} else if networkName == "host" {
+			ips = append(ips, g.dockerClientGatewayIP[*dockerClient])
 		}
 	}
 

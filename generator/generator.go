@@ -27,13 +27,14 @@ const swarmAvailabilityCacheInterval = 1 * time.Minute
 
 // CaddyfileGenerator generates caddyfile from docker configuration
 type CaddyfileGenerator struct {
-	options              *config.Options
-	labelRegex           *regexp.Regexp
-	dockerClients        []docker.Client
-	dockerUtils          docker.Utils
-	ingressNetworks      map[string]bool
-	swarmIsAvailable     []bool
-	swarmIsAvailableTime time.Time
+	options               *config.Options
+	labelRegex            *regexp.Regexp
+	dockerClients         []docker.Client
+	dockerUtils           docker.Utils
+	ingressNetworks       map[string]bool
+	dockerClientGatewayIP map[docker.Client]string
+	swarmIsAvailable      []bool
+	swarmIsAvailableTime  time.Time
 }
 
 // CreateGenerator creates a new generator
@@ -59,6 +60,14 @@ func (g *CaddyfileGenerator) GenerateCaddyfile(logger *zap.Logger) ([]byte, []st
 			g.ingressNetworks = ingressNetworks
 		} else {
 			logger.Error("Failed to get ingress networks", zap.Error(err))
+		}
+	}
+	if g.dockerClientGatewayIP == nil {
+		dockerClientGatewayIP, err := g.getGatewayIP(logger)
+		if err == nil {
+			g.dockerClientGatewayIP = dockerClientGatewayIP
+		} else {
+			logger.Error("Failed to get gateway ips", zap.Error(err))
 		}
 	}
 
@@ -121,7 +130,7 @@ func (g *CaddyfileGenerator) GenerateCaddyfile(logger *zap.Logger) ([]byte, []st
 		if err == nil {
 			for _, container := range containers {
 				if _, isControlledServer := container.Labels[g.options.ControlledServersLabel]; isControlledServer {
-					ips, err := g.getContainerIPAddresses(&container, logger, false)
+					ips, err := g.getContainerIPAddresses(&dockerClient, &container, logger, false)
 					if err != nil {
 						logger.Error("Failed to get Container IPs", zap.String("container", container.ID), zap.Error(err))
 					} else {
@@ -132,7 +141,7 @@ func (g *CaddyfileGenerator) GenerateCaddyfile(logger *zap.Logger) ([]byte, []st
 						}
 					}
 				}
-				containerCaddyfile, err := g.getContainerCaddyfile(&container, logger)
+				containerCaddyfile, err := g.getContainerCaddyfile(&dockerClient, &container, logger)
 				if err == nil {
 					caddyfileBlock.Merge(containerCaddyfile)
 				} else {
@@ -228,6 +237,33 @@ func (g *CaddyfileGenerator) checkSwarmAvailability(logger *zap.Logger, isFirstC
 			g.swarmIsAvailable[i] = false
 		}
 	}
+}
+
+func (g *CaddyfileGenerator) getGatewayIP(logger *zap.Logger) (map[docker.Client]string, error) {
+	dockerClientGatewayIP := map[docker.Client]string{}
+	containerID, err := g.dockerUtils.GetCurrentContainerID()
+	if err != nil {
+		return nil, err
+	}
+	//logger.Info("Caddy ContainerID", zap.String("ID", containerID))
+	for _, dockerClient := range g.dockerClients {
+		containerInspect, err := dockerClient.ContainerInspect(context.Background(), containerID)
+		if err != nil {
+			return nil, err
+		}
+		for _, network := range containerInspect.NetworkSettings.Networks {
+			networkInspect, err := dockerClient.NetworkInspect(context.Background(), network.NetworkID, types.NetworkInspectOptions{})
+			if err != nil {
+				return nil, err
+			}
+			if networkInspect.Ingress {
+				continue
+			}
+			dockerClientGatewayIP[dockerClient] = network.Gateway
+			break
+		}
+	}
+	return dockerClientGatewayIP, nil
 }
 
 func (g *CaddyfileGenerator) getIngressNetworks(logger *zap.Logger) (map[string]bool, error) {

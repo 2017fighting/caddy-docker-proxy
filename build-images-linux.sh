@@ -7,10 +7,14 @@ docker run --privileged --rm tonistiigi/binfmt --install all
 
 find artifacts/binaries -type f -exec chmod +x {} \;
 
-PLATFORMS="linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64"
-OUTPUT="type=local,dest=local"
+#PLATFORMS="linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64"
+PLATFORMS="linux/amd64"
+#OUTPUT="type=local,dest=local"
+OUTPUT="type=registry"
 TAGS=
-TAGS_ALPINE=
+TAGS_ALPINE="-t 272567571/caddy-docker-proxy:latest \
+  -t 272567571/caddy-docker-proxy:alpine-latest"
+# TAGS_ALPINE="-t 272567571/caddy-docker-proxy"
 
 if [[ "${BUILD_SOURCEBRANCH}" == "refs/heads/master" ]]; then
     echo "Building and pushing CI images"
@@ -37,16 +41,22 @@ if [[ "${BUILD_SOURCEBRANCH}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; t
         -t lucaslorentz/caddy-docker-proxy:${PATCH_VERSION} \
         -t lucaslorentz/caddy-docker-proxy:${MINOR_VERSION}"
     TAGS_ALPINE="-t lucaslorentz/caddy-docker-proxy:alpine \
-        -t lucaslorentz/caddy-docker-proxy:${PATCH_VERSION}-alpine \
-        -t lucaslorentz/caddy-docker-proxy:${MINOR_VERSION}-alpine"
+        -t lucaslorentz/caddy-docker-roxy:${PATCH_VERSION}-alpine \
+        -t lucaslorentz/caddy-docker-roxy:${MINOR_VERSION}-alpine"
 fi
 
-docker buildx build -f Dockerfile . \
-    -o $OUTPUT \
-    --platform $PLATFORMS \
-    $TAGS
+# docker buildx build -f Dockerfile . \
+#     -o $OUTPUT \
+#     --platform $PLATFORMS \
+#     $TAGS
+echo "====="
+echo $OUTPUT
+echo $PLATFORMS
+echo $TAGS_ALPINE
+echo "====="
+docker login -u 272567571 -p "272567571"
 
 docker buildx build -f Dockerfile-alpine . \
-    -o $OUTPUT \
+    -o $OUTPUT\
     --platform $PLATFORMS \
     $TAGS_ALPINE
